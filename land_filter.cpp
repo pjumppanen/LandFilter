@@ -381,18 +381,19 @@ bool sfSeaFilter::pointInPolygon(const sfPolygonAccessor& rAccessor,
                                  double x, 
                                  double y) const
 {
-  int     i         = 0;
-  int     j         = rAccessor.size() - 1;
+  int     i;
   int     nLimit    = rAccessor.size();
   bool    oddNodes  = false;
   sfCoOrd CoOrd_i;
   sfCoOrd CoOrd_j;
 
-  CoOrd_j = rAccessor[j];
-  CoOrd_i = rAccessor[i];
+  CoOrd_i = rAccessor[0];
   
-  for ( ; i < nLimit ; i++)
+  for (i = 1 ; i < nLimit ; i++)
   {
+    CoOrd_j = CoOrd_i;
+    CoOrd_i = rAccessor[i];
+
     if (((y >= CoOrd_j.Y) && (y < CoOrd_i.Y)) || ((y >= CoOrd_i.Y) && (y < CoOrd_j.Y)))
     {
       double dX1 = CoOrd_j.X;
@@ -427,33 +428,33 @@ bool sfSeaFilter::pointInPolygon(const sfPolygonAccessor& rAccessor,
         }
       }
 
-      // This is checking if the intersection is to the right of the point.
-      if (dY1 >= dY2)
+      if ((dX1 <= x) || (dX2 <= x))
       {
-        double dT;
+        // This is checking if the intersection is to the right of the point.
+        if (dY1 >= dY2)
+        {
+          double dT;
 
-        dY1 = CoOrd_i.Y;
-        dY2 = CoOrd_j.Y;
-        dT  = dX1;
-        dX1 = dX2;
-        dX2 = dT;
+          dY1 = CoOrd_i.Y;
+          dY2 = CoOrd_j.Y;
+          dT  = dX1;
+          dX1 = dX2;
+          dX2 = dT;
+       }
+
+        double dDX    = (dX2 - dX1);
+        double dDY    = (dY2 - dY1);
+        double dTest  = (x - dX1) * dDY - (y - dY1) * dDX;
+        bool   bRight = (dTest > 0.0);
+
+        oddNodes ^= bRight;
       }
-
-      double dDX    = (dX2 - dX1);
-      double dDY    = (dY2 - dY1);
-      double dTest  = (x - dX1) * dDY - (y - dY1) * dDY;
-      bool   bRight = (dTest > 0.0);
-
-      oddNodes ^= bRight;
     }
-
-    CoOrd_j = CoOrd_i;
-    CoOrd_i = rAccessor[i];
   }
 
   return oddNodes;
-} 
-  
+}
+
 //-----------------------------------------------------------------------------
 
 void sfSeaFilter::bigToLittle(int& nNum) const
@@ -909,7 +910,7 @@ bool sfSeaFilter::clipEndAtLand(double& dClippedEndLon,
     sfCoOrd       A = rAccessor[0];
     sfCoOrd       B;
 
-    for (int cn = 1 ; cn < nSize - 1 ; cn++)
+    for (int cn = 1 ; cn < nSize ; cn++)
     {
       B = rAccessor[cn];
 
@@ -952,6 +953,7 @@ bool sfSeaFilter::pointOnLand(double dLon,
     if (pointInPolygon(rAccessor, dLon, dLat))
     {
       bOnLand = true;
+      pointInPolygon(rAccessor, dLon, dLat);
       break;
     }
   }
@@ -1148,63 +1150,53 @@ bool sfSeaFilter::pointOnLand(double dLon,
 {
   sfPolygonAccessor rAccessor;
 
-  return (pointOnLand(dLon, 
-                      dLat,
+  // We need to normalise the angles because out calling code will not have
+  // normalised angles as our state space model needs to be acting on contiguous
+  // lat and lon data without dateline wrapping.
+  double normalised_lon = ::fmod(dLon + 180, 360.0) - 180;
+  double normalised_lat = (::fmod(dLat + 90, 180) - 90) * (1 - (2 * int((dLat + 90) / 180) & 0x1));
+
+  return (pointOnLand(normalised_lon, 
+                      normalised_lat,
                       rAccessor));
 }                            
 
 //-----------------------------------------------------------------------------
 
-bool sfSeaFilter::speedAndLandLimit(double dLonStart, 
-                                    double dLatStart, 
-                                    double dLonEnd, 
-                                    double dLatEnd,
-                                    double dTimeStepS,
-                                    double dMaxSpeedMpS,
-                                    double& dLimitedLon,
-                                    double& dLimitedLat) const
+bool sfSeaFilter::landLimit(double dLonStart, 
+                            double dLatStart, 
+                            double dLonEnd,
+                            double dLatEnd,
+                            double& dLimitedLon,
+                            double& dLimitedLat,
+                            bool bNormalise) const
 {
   bool bLimited = false;
 
-  double heading  = 0;
-  double distance = 0;
+  double dNormLonStart = dLonStart;
+  double dNormLatStart = dLatStart;
+  double dNormLonEnd   = dLonEnd;
+  double dNormLatEnd   = dLatEnd;
 
-  dLimitedLon = dLonEnd;
-  dLimitedLat = dLatEnd;
-
-  // Find heading and speed
-  headingAndDistanceFromStartAndEnd(heading,
-                                    distance,
-                                    dLonStart, 
-                                    dLatStart, 
-                                    dLonEnd, 
-                                    dLatEnd);
-
-  double dSpeedMpS = distance * 1000.0 / dTimeStepS;
-
-  // If speed exceeds limit then find new end point 
-  // based on max speed and heading
-  if (dSpeedMpS > dMaxSpeedMpS)
+  if (bNormalise)
   {
-    double distance_km = dMaxSpeedMpS * dTimeStepS / 1000.0;
-
-    endFromStartHeadingAndDistance(dLimitedLon, 
-                                   dLimitedLat, 
-                                   dLonStart, 
-                                   dLatStart, 
-                                   distance_km, 
-                                   heading);
-
-    bLimited = true;                                   
+    dNormLonStart = ::fmod(dNormLonStart + 180, 360.0) - 180;
+    dNormLatStart = (::fmod(dNormLatStart + 90, 180) - 90) * (1 - (2 * int((dNormLatStart + 90) / 180) & 0x1));
+    dNormLonEnd   = ::fmod(dNormLonEnd + 180, 360.0) - 180;
+    dNormLatEnd   = (::fmod(dNormLatEnd + 90, 180) - 90) * (1 - (2 * int((dNormLatEnd + 90) / 180) & 0x1));
   }
 
+  dLimitedLon = dNormLonEnd;
+  dLimitedLat = dNormLatEnd;
+
+  // Limit to ocean
   sfPolygonRecordPtrByLongLongMap rPolygonsMap;
 
   findEnvolvedPolygons(rPolygonsMap, 
                        dLimitedLon, 
                        dLimitedLat, 
-                       dLonStart, 
-                       dLatStart);
+                       dNormLonStart, 
+                       dNormLatStart);
 
   sfPolygonAccessor   rAccessor;
 
@@ -1216,16 +1208,145 @@ bool sfSeaFilter::speedAndLandLimit(double dLonStart,
 
     if (clipEndAtLand(dLimitedLon, 
                       dLimitedLat, 
-                      dLonStart, 
-                      dLatStart,
+                      dNormLonStart, 
+                      dNormLatStart,
                       rAccessor))
     {
       bLimited = true;
     }                           
   }
 
+  if (bLimited)
+  {
+    // Add a small epsilon to lat an lon to make it in sea
+    // Need to fix this. should go in the direction of the vector but epsilon should 
+    // depend on the glancing angle with the land line.
+    double dEpsilon      = 1.0e-2;
+    double dEpsilonLon   = (dNormLonStart - dLimitedLon >= 0) ? dEpsilon : -dEpsilon;
+    double dEpsilonLat   = (dNormLatStart - dLimitedLat >= 0) ? dEpsilon : -dEpsilon;
+
+    dLimitedLon += dEpsilonLon;
+    dLimitedLat += dEpsilonLat;
+
+    if ((dNormLonEnd * dLimitedLon < 0.0) && (fabs(dLimitedLon) > 90.0))
+    {
+      // Sign has changed implying limited result has crossed the date line
+      if (dNormLonEnd >= 0.0)
+      {
+        dLimitedLon += 180;
+      }
+      else
+      {
+        dLimitedLon -= 180;
+      }
+    }
+  }
+
   return (bLimited);
 }
+
+//-----------------------------------------------------------------------------
+
+bool sfSeaFilter::speedAndLandLimit(double dLonStart, 
+                                    double dLatStart, 
+                                    double dVelocityLon,
+                                    double dVelocityLat,
+                                    double dTimeStepS,
+                                    double dMaxSpeedMpS,
+                                    double& dLimitedLon,
+                                    double& dLimitedLat,
+                                    double& dLimitedVelocityLon, 
+                                    double& dLimitedVelocityLat) const
+{
+  bool bLimited = false;
+
+  double dSpeed = ::sqrt(dVelocityLon * dVelocityLon + dVelocityLat * dVelocityLat);
+
+  if (dSpeed > dMaxSpeedMpS)
+  {
+    double dScale = dMaxSpeedMpS / dSpeed;
+
+    dLimitedVelocityLon = dVelocityLon * dScale;
+    dLimitedVelocityLat = dVelocityLat * dScale;
+
+    bLimited = true;
+  }
+  else
+  {
+    dLimitedVelocityLon = dVelocityLon;
+    dLimitedVelocityLat = dVelocityLat;
+  }
+
+  // Earth's radius in meters
+  double earth_radius = 6371000.0;
+
+  // convert to radians
+  double start_lon = M_PI * dLonStart / 180.0;
+  double start_lat = M_PI * dLatStart / 180.0; 
+
+  // Convert latitudinal and longitudinal velocities to radians per second
+  double lon_velocity_rad = dLimitedVelocityLon / earth_radius;
+  double lat_velocity_rad = dLimitedVelocityLat / earth_radius;
+
+  // Calculate the new latitude and longitude
+  double new_lat = start_lat + lat_velocity_rad * dTimeStepS;
+  double new_lon = start_lon + lon_velocity_rad * dTimeStepS / ::cos(start_lat);
+
+  // Convert back to degrees
+  new_lat *= 180.0 / M_PI;
+  new_lon *= 180.0 / M_PI;
+
+  // Normalise angles
+  double normalised_new_lon = ::fmod(new_lon + 180, 360.0) - 180;
+  double normalised_new_lat = (::fmod(new_lat + 90, 180) - 90) * (1 - (2 * int((new_lat + 90) / 180) & 0x1));
+  double lon_offset         = new_lon - normalised_new_lon;
+  double lat_offset         = new_lat - normalised_new_lat;
+  double original_lon       = normalised_new_lon;
+  bool   bLandLimited       = false;
+
+  // Limit to ocean
+  if (landLimit(dLonStart, 
+                dLatStart, 
+                normalised_new_lon,
+                normalised_new_lat,
+                normalised_new_lon,
+                normalised_new_lat,
+                false))
+  {
+    if ((normalised_new_lon * original_lon < 0.0) && (fabs(normalised_new_lon) > 90.0))
+    {
+      // Sign has changed implying limited result has crossed the date line
+      if (original_lon >= 0.0)
+      {
+        normalised_new_lon += 180;
+      }
+      else
+      {
+        normalised_new_lon -= 180;
+      }
+    }
+
+    if (::fabs(dTimeStepS) >= 1e-15)
+    {
+      // Need to adjust velocity to match the change
+      dLimitedVelocityLon = earth_radius * ::cos(start_lat) * (normalised_new_lon - dLonStart) * M_PI / (180.0 * dTimeStepS);
+      dLimitedVelocityLat = earth_radius * (normalised_new_lat - dLatStart) * M_PI / (180.0 * dTimeStepS);
+    }
+
+    bLimited = true;
+  }                
+
+  // put values back into orignal calling domain (ie. remove wrapping effects)
+  normalised_new_lon += lon_offset;
+  normalised_new_lat += lat_offset;
+
+  dLimitedLon = normalised_new_lon;
+  dLimitedLat = normalised_new_lat;
+
+  return (bLimited);
+}
+
+//-----------------------------------------------------------------------------
 
 #ifdef __R_MODULE__
 
@@ -1385,7 +1506,7 @@ EXPORT SEXP PointOnLand(SEXP args)
 
 //-----------------------------------------------------------------------------
 
-EXPORT SEXP SpeedAndLandLimit(SEXP args)
+EXPORT SEXP LandLimit(SEXP args)
 {
   SEXP Result = Rf_allocVector(REALSXP, 2);
   SEXP rInstance;
@@ -1393,24 +1514,18 @@ EXPORT SEXP SpeedAndLandLimit(SEXP args)
   SEXP LatStart;
   SEXP LonEnd;
   SEXP LatEnd;
-  SEXP TimeStepS;
-  SEXP MaxSpeedMpS;
     
   args = CDR(args); rInstance   = CAR(args);
   args = CDR(args); LonStart    = CAR(args);
   args = CDR(args); LatStart    = CAR(args);
   args = CDR(args); LonEnd      = CAR(args);
   args = CDR(args); LatEnd      = CAR(args);
-  args = CDR(args); TimeStepS   = CAR(args);
-  args = CDR(args); MaxSpeedMpS = CAR(args);
   
   PROTECT(rInstance);
   PROTECT(LonStart);
   PROTECT(LatStart);
   PROTECT(LonEnd);
   PROTECT(LatEnd);
-  PROTECT(TimeStepS);
-  PROTECT(MaxSpeedMpS);
 
   ASSERT_TYPE_TAG(rInstance, sfSeaFilter);
   
@@ -1436,6 +1551,81 @@ EXPORT SEXP SpeedAndLandLimit(SEXP args)
     Rf_error("ERROR: LatEnd must be of type REALSXP. See line %d in file %s", __LINE__, __FILE__);
   }
   
+
+  double dLimitedLon          = 0.0;
+  double dLimitedLat          = 0.0;
+
+  bool bLimited = pContext->landLimit(REAL(LonStart)[0], 
+                                      REAL(LatStart)[0], 
+                                      REAL(LonEnd)[0], 
+                                      REAL(LatEnd)[0],
+                                      dLimitedLon,
+                                      dLimitedLat,
+                                      true);
+
+  PROTECT(Result);
+
+  REAL(Result)[0] = dLimitedLon;
+  REAL(Result)[1] = dLimitedLat;
+
+  UNPROTECT(6);
+
+  return (Result);
+}
+
+//-----------------------------------------------------------------------------
+
+EXPORT SEXP SpeedAndLandLimit(SEXP args)
+{
+  SEXP Result = Rf_allocVector(REALSXP, 4);
+  SEXP rInstance;
+  SEXP LonStart;
+  SEXP LatStart;
+  SEXP VelocityLon;
+  SEXP VelocityLat;
+  SEXP TimeStepS;
+  SEXP MaxSpeedMpS;
+    
+  args = CDR(args); rInstance   = CAR(args);
+  args = CDR(args); LonStart    = CAR(args);
+  args = CDR(args); LatStart    = CAR(args);
+  args = CDR(args); VelocityLon = CAR(args);
+  args = CDR(args); VelocityLat = CAR(args);
+  args = CDR(args); TimeStepS   = CAR(args);
+  args = CDR(args); MaxSpeedMpS = CAR(args);
+  
+  PROTECT(rInstance);
+  PROTECT(LonStart);
+  PROTECT(LatStart);
+  PROTECT(VelocityLon);
+  PROTECT(VelocityLat);
+  PROTECT(TimeStepS);
+  PROTECT(MaxSpeedMpS);
+
+  ASSERT_TYPE_TAG(rInstance, sfSeaFilter);
+  
+  sfSeaFilter* pContext = (sfSeaFilter*)R_ExternalPtrAddr(rInstance);
+
+  if (isReal(LonStart) == 0)
+  {
+    Rf_error("ERROR: LonStart must be of type REALSXP. See line %d in file %s", __LINE__, __FILE__);
+  }
+  
+  if (isReal(LatStart) == 0)
+  {
+    Rf_error("ERROR: LatStart must be of type REALSXP. See line %d in file %s", __LINE__, __FILE__);
+  }
+  
+  if (isReal(VelocityLon) == 0)
+  {
+    Rf_error("ERROR: VelocityLon must be of type REALSXP. See line %d in file %s", __LINE__, __FILE__);
+  }
+  
+  if (isReal(VelocityLat) == 0)
+  {
+    Rf_error("ERROR: VelocityLat must be of type REALSXP. See line %d in file %s", __LINE__, __FILE__);
+  }
+  
   if (isReal(TimeStepS) == 0)
   {
     Rf_error("ERROR: TimeStepS must be of type REALSXP. See line %d in file %s", __LINE__, __FILE__);
@@ -1446,22 +1636,28 @@ EXPORT SEXP SpeedAndLandLimit(SEXP args)
     Rf_error("ERROR: MaxSpeedMpS must be of type REALSXP. See line %d in file %s", __LINE__, __FILE__);
   }
 
-  double dLimitedLon = 0.0;
-  double dLimitedLat = 0.0;
+  double dLimitedLon          = 0.0;
+  double dLimitedLat          = 0.0;
+  double dLimitedVelocityLon  = 0.0;
+  double dLimitedVelocityLat  = 0.0;
 
   bool bLimited = pContext->speedAndLandLimit(REAL(LonStart)[0], 
                                               REAL(LatStart)[0], 
-                                              REAL(LonEnd)[0], 
-                                              REAL(LatEnd)[0],
+                                              REAL(VelocityLon)[0], 
+                                              REAL(VelocityLat)[0],
                                               REAL(TimeStepS)[0],
                                               REAL(MaxSpeedMpS)[0],
                                               dLimitedLon,
-                                              dLimitedLat);
+                                              dLimitedLat,
+                                              dLimitedVelocityLon, 
+                                              dLimitedVelocityLat);
 
   PROTECT(Result);
 
   REAL(Result)[0] = dLimitedLon;
   REAL(Result)[1] = dLimitedLat;
+  REAL(Result)[2] = dLimitedVelocityLon;
+  REAL(Result)[3] = dLimitedVelocityLat;
 
   UNPROTECT(8);
 

@@ -689,14 +689,24 @@ public:
   bool                pointOnLand(double dLon, 
                                   double dLat) const;
 
+  bool                landLimit(double dLonStart, 
+                                double dLatStart, 
+                                double dLonEnd,
+                                double dLatEnd,
+                                double& dLimitedLon,
+                                double& dLimitedLat,
+                                bool bNormalise) const;
+
   bool                speedAndLandLimit(double dLonStart, 
                                         double dLatStart, 
-                                        double dLonEnd, 
-                                        double dLatEnd,
+                                        double dVelocityLon,
+                                        double dVelocityLat,
                                         double dTimeStepS,
                                         double dMaxSpeedMpS,
                                         double& dLimitedLon,
-                                        double& dLimitedLat) const;
+                                        double& dLimitedLat,
+                                        double& dLimitedVelocityLon, 
+                                        double& dLimitedVelocityLat) const;
 };
 
 //-----------------------------------------------------------------------------
@@ -781,6 +791,7 @@ EXPORT void Destroy_handler(SEXP rInstance);
 EXPORT SEXP Destroy(SEXP args);
 EXPORT SEXP Initialise(SEXP args);
 EXPORT SEXP PointOnLand(SEXP args);
+EXPORT SEXP LandLimit(SEXP args);
 EXPORT SEXP SpeedAndLandLimit(SEXP args);
 
 #endif  //__R_MODULE__
