@@ -19,6 +19,8 @@
 #include <math.h>
 #include <assert.h>
 #include <R_ext/Print.h>
+#include <R_ext/Arith.h>
+#include <R_ext/Error.h>
 
 
 //-----------------------------------------------------------------------------
@@ -153,7 +155,25 @@ bool sfBoundingBox::intersects(sfLineSegment& rLine) const
     else
     {
       dYIntersect = ((BottomRight.X - rLine.A.X) * dY / dX) + rLine.A.Y;
-      bIntersects = ((dYIntersect >= TopLeft.Y) && (dYIntersect <= BottomRight.Y));
+
+      if ((dYIntersect >= TopLeft.Y) && (dYIntersect <= BottomRight.Y))
+      {
+        bIntersects = true;
+      }
+      else if (dY != 0.0)
+      {
+        double dXIntersect = ((TopLeft.Y - rLine.A.Y) * dX / dY) + rLine.A.X;
+
+        if ((dXIntersect >= TopLeft.X) && (dXIntersect <= BottomRight.X))
+        {
+          bIntersects = true;
+        }
+        else
+        {
+          dXIntersect = ((BottomRight.Y - rLine.A.Y) * dX / dY) + rLine.A.X;
+          bIntersects = ((dXIntersect >= TopLeft.X) && (dXIntersect <= BottomRight.X));
+        }
+      }
     }
   }
   else
@@ -167,7 +187,25 @@ bool sfBoundingBox::intersects(sfLineSegment& rLine) const
     else
     {
       dXIntersect = ((BottomRight.Y - rLine.A.Y) * dX / dY) + rLine.A.X;
-      bIntersects = ((dXIntersect >= TopLeft.X) && (dXIntersect <= BottomRight.X));
+
+      if ((dXIntersect >= TopLeft.X) && (dXIntersect <= BottomRight.X))
+      {
+        bIntersects = true;
+      }
+      else if (dX != 0.0)
+      {
+        double dYIntersect = ((TopLeft.X - rLine.A.X) * dY / dX) + rLine.A.Y;
+
+        if ((dYIntersect >= TopLeft.Y) && (dYIntersect <= BottomRight.Y))
+        {
+          bIntersects = true;
+        }
+        else
+        {
+          dYIntersect = ((BottomRight.X - rLine.A.X) * dY / dX) + rLine.A.Y;
+          bIntersects = ((dYIntersect >= TopLeft.Y) && (dYIntersect <= BottomRight.Y));
+        }
+      }
     }
   }
 
@@ -302,13 +340,12 @@ void sfSeaFilter::findEnvolvedPolygons(sfPolygonRecordPtrByLongLongMap& rResultM
   int           nStartLatSqr = latSquare(start_lat);
   int           nEndLonSqr   = lonSquare(end_lon);
   int           nEndLatSqr   = latSquare(end_lat);
-  double        dDeltaLon    = end_lon - start_lon;
-  double        dDeltaLat    = end_lat - start_lat;
   sfLineSegment rLine(sfCoOrd(start_lon, start_lat), sfCoOrd(end_lon, end_lat));
   int           nL1;
   int           nL2;
+  int           nL3;
+  int           nL4;
 
-  // Add by longitude
   if (nStartLonSqr <= nEndLonSqr)
   {
     nL1 = nStartLonSqr;
@@ -320,54 +357,37 @@ void sfSeaFilter::findEnvolvedPolygons(sfPolygonRecordPtrByLongLongMap& rResultM
     nL1 = nEndLonSqr;
   }
 
-  for (int cn = nL1 ; cn <= nL2; cn++)
-  {
-    double dLon  = cn * SquareSize;
-    double dLat  = start_lat + ((dLon - start_lon) * dDeltaLat / dDeltaLon);
-    int    nCode = encode(lonSquare(dLon), latSquare(dLat));
-
-    for (sfPolygonRecordPtrByIntMultiMapIter Iter = PolygonMap.lower_bound(nCode) ; Iter != PolygonMap.upper_bound(nCode) ; ++Iter)
-    {
-      sfPolygonRecord*  pMapRecord = Iter->second;
-      sfBoundingBox     BoundingBox(pMapRecord->Record);
-
-      // Only add polygons whose bounding box intersects the line
-      if (BoundingBox.intersects(rLine))
-      {
-        long long   nIndex = (long long)pMapRecord;
-        rResultMap[nIndex] = pMapRecord;
-      }
-    }
-  }
-
-  // Add by latitude
   if (nStartLatSqr <= nEndLatSqr)
   {
-    nL1 = nStartLatSqr;
-    nL2 = nEndLatSqr;
+    nL3 = nStartLatSqr;
+    nL4 = nEndLatSqr;
   }
   else
   {
-    nL2 = nStartLatSqr;
-    nL1 = nEndLatSqr;
+    nL4 = nStartLatSqr;
+    nL3 = nEndLatSqr;
   }
 
   for (int cn = nL1 ; cn <= nL2; cn++)
   {
-    double dLat  = cn * SquareSize;
-    double dLon  = start_lon + ((dLat - start_lat) * dDeltaLon / dDeltaLat);
-    int    nCode = encode(lonSquare(dLon), latSquare(dLat));
+    double dLon  = cn * SquareSize;
 
-    for (sfPolygonRecordPtrByIntMultiMapIter Iter = PolygonMap.lower_bound(nCode) ; Iter != PolygonMap.upper_bound(nCode) ; ++Iter)
+    for (int cm = nL3 ; cm <= nL4; cm++)
     {
-      sfPolygonRecord*  pMapRecord = Iter->second;
-      sfBoundingBox     BoundingBox(pMapRecord->Record);
+      double dLat  = cm * SquareSize;
+      int    nCode = encode(lonSquare(dLon), latSquare(dLat));
 
-      // Only add polygons whose bounding box intersects the line
-      if (BoundingBox.intersects(rLine))
+      for (sfPolygonRecordPtrByIntMultiMapIter Iter = PolygonMap.lower_bound(nCode) ; Iter != PolygonMap.upper_bound(nCode) ; ++Iter)
       {
-        long long   nIndex = (long long)pMapRecord;
-        rResultMap[nIndex] = pMapRecord;
+        sfPolygonRecord*  pMapRecord = Iter->second;
+        sfBoundingBox     BoundingBox(pMapRecord->Record);
+
+        // Only add polygons whose bounding box intersects the line
+        if (BoundingBox.intersects(rLine))
+        {
+          long long   nIndex = (long long)pMapRecord;
+          rResultMap[nIndex] = pMapRecord;
+        }
       }
     }
   }
@@ -892,7 +912,8 @@ bool sfSeaFilter::clipEndAtLand(double& dClippedEndLon,
                                 double& dClippedEndLat, 
                                 double dLonStart, 
                                 double dLatStart,
-                                const sfPolygonAccessor& rAccessor) const
+                                const sfPolygonAccessor& rAccessor,
+                                sfLineSegment* pIntersectingLine) const
 {
   // This line clipping is done on the basis of a line drawn with longitudes and 
   // latitudes rather than true greater circle paths which is mathematically 
@@ -923,6 +944,11 @@ bool sfSeaFilter::clipEndAtLand(double& dClippedEndLon,
         TrackLine.B.X  = ClippedLine.B.X;
         TrackLine.B.Y  = ClippedLine.B.Y;
         bClipped       = true;
+
+        if (pIntersectingLine != 0)
+        {
+          *pIntersectingLine = LandLine;
+        }
       }
 
       A = B;
@@ -1199,6 +1225,7 @@ bool sfSeaFilter::landLimit(double dLonStart,
                        dNormLatStart);
 
   sfPolygonAccessor   rAccessor;
+  sfLineSegment       rIntersectingLine;
 
   for (sfPolygonRecordPtrByLongLongMapIter Iter = rPolygonsMap.begin() ; Iter != rPolygonsMap.end() ; ++Iter)
   {
@@ -1210,7 +1237,8 @@ bool sfSeaFilter::landLimit(double dLonStart,
                       dLimitedLat, 
                       dNormLonStart, 
                       dNormLatStart,
-                      rAccessor))
+                      rAccessor, 
+                      &rIntersectingLine))
     {
       bLimited = true;
     }                           
@@ -1218,15 +1246,44 @@ bool sfSeaFilter::landLimit(double dLonStart,
 
   if (bLimited)
   {
-    // Add a small epsilon to lat an lon to make it in sea
-    // Need to fix this. should go in the direction of the vector but epsilon should 
-    // depend on the glancing angle with the land line.
-    double dEpsilon      = 1.0e-2;
-    double dEpsilonLon   = (dNormLonStart - dLimitedLon >= 0) ? dEpsilon : -dEpsilon;
-    double dEpsilonLat   = (dNormLatStart - dLimitedLat >= 0) ? dEpsilon : -dEpsilon;
+    // Add a small epsilon to lat an lon to make it in sea. To do so we use a fixed
+    // size coincidental epsilon scaled by 1 / sin(theta) where theta is the angle
+    // between land line and track line reduced to the domain [0,pi / 2]. 
+    sfLineSegment rClippedSegment(sfCoOrd(dNormLonStart, dNormLatStart), sfCoOrd(dLimitedLon, dLimitedLat));
+    double        dDeltaLon   = dNormLonStart - dLimitedLon;
+    double        dDeltaLat   = dNormLatStart - dLimitedLat;
+    double        dLength     = ::sqrt((dDeltaLon * dDeltaLon) + (dDeltaLat * dDeltaLat));
 
-    dLimitedLon += dEpsilonLon;
-    dLimitedLat += dEpsilonLat;
+    if (dLength > 0.0)
+    {
+      if (dLength < 1.0e-10)
+      {
+        dLimitedLon = dNormLonStart;
+        dLimitedLat = dNormLatStart;
+      }
+      else
+      {
+        double        dThetaTrack = rClippedSegment.slopeAngle();
+        double        dThetaLand  = rIntersectingLine.slopeAngle();
+        double        dDeltaTheta = ::fmod(::fabs(dThetaTrack - dThetaLand), M_PI / 2.0);
+        double        dEpsilonVal = dLength * 1.0e-3;
+        double        dEpsilon    = dEpsilonVal / (::sin(dDeltaTheta) + 1.0e-6);
+
+        if (dEpsilon > dLength)
+        {
+          dLimitedLon = dNormLonStart;
+          dLimitedLat = dNormLatStart;
+        }
+        else
+        {
+          double        dEpsilonLon = dEpsilon * dDeltaLon / dLength;
+          double        dEpsilonLat = dEpsilon * dDeltaLat / dLength;
+
+          dLimitedLon += dEpsilonLon;
+          dLimitedLat += dEpsilonLat;
+        }
+      }
+    }
 
     if ((dNormLonEnd * dLimitedLon < 0.0) && (fabs(dLimitedLon) > 90.0))
     {
@@ -1259,6 +1316,16 @@ bool sfSeaFilter::speedAndLandLimit(double dLonStart,
                                     double& dLimitedVelocityLat) const
 {
   bool bLimited = false;
+
+  if (ISNA(dTimeStepS))
+  {
+    Rf_error("ERROR: dTimeStepS is NA but must be a valid number. See line %d in file %s", __LINE__, __FILE__);
+  }
+
+  if (ISNA(dMaxSpeedMpS))
+  {
+    Rf_error("ERROR: dMaxSpeedMpS is NA but must be a valid number. See line %d in file %s", __LINE__, __FILE__);
+  }
 
   double dSpeed = ::sqrt(dVelocityLon * dVelocityLon + dVelocityLat * dVelocityLat);
 

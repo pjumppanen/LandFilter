@@ -350,6 +350,7 @@ struct sfLineSegment
 
   const sfCoOrd&  ptA() const;
   const sfCoOrd&  ptB() const;
+  double          slopeAngle() const;
 
   void            ptA(const sfCoOrd& rA);
   void            ptB(const sfCoOrd& rB);
@@ -413,6 +414,30 @@ inline void sfLineSegment::ptB(const sfCoOrd& rB)
 {
   B = rB;
 }
+
+//-----------------------------------------------------------------------------
+
+inline double sfLineSegment::slopeAngle() const
+{
+  double dTheta;
+  double dDeltaX = (A.X - B.X);
+  double dDeltaY = (A.Y - B.Y);
+
+  if (::fabs(dDeltaX) > ::fabs(dDeltaY))
+  {
+    double dSlope = dDeltaY / dDeltaX;
+
+    dTheta = ::atan(dSlope);
+  }
+  else
+  {
+    double dInvSlope = dDeltaX / dDeltaY;
+
+    dTheta = (M_PI / 2) - ::atan(dInvSlope);
+  }
+
+  return (dTheta);
+}  
 
 //-----------------------------------------------------------------------------
 
@@ -670,7 +695,8 @@ protected:
                                     double& dClippedEndLat, 
                                     double dLonStart, 
                                     double dLatStart, 
-                                    const sfPolygonAccessor& rAccessor) const;
+                                    const sfPolygonAccessor& rAccessor,
+                                    sfLineSegment* pIntersectingLine = 0) const;
 
   bool                pointOnLand(double dLon, 
                                   double dLat, 
